@@ -300,7 +300,7 @@ public class VirtualDNS {
                         System.exit(1);
                 }
                 try {
-			PropertyConfigurator.configure(args[3]);
+                		PropertyConfigurator.configure(args[3]);
                         short port = (short)Integer.parseInt(args[2]);
                         VirtualDNS s = new VirtualDNS(args[0], args[1], port);
                 }
