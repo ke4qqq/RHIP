@@ -179,119 +179,155 @@ public class VirtualDNS {
     		response.addRecord(r, section);
     	}
     }
+    
+    String dump(byte[] in) {
+		StringBuffer str = new StringBuffer();
+		str.append("\n");
+		for (int i=0; i<in.length; i++) {
+			str.append("0x"+Integer.toHexString(in[i]));
+			str.append(",");
+			if (i!=0 && i%10 == 0) {
+				str.append("\n");
+			}
+		}
+		return str.toString();
+    }
 	// Construct a proper reply packet.
 	private Message generateReply(Message query, byte [] in, Socket s, InetAddress src) {
-
-		// Refuse everything but standard DNS queries.
-		if (query.getHeader().getOpcode() != Opcode.QUERY)
-			return ErrorMessages.makeErrorMessage(zone.getSOA(), query, (short)Rcode.NOTIMPL);
-
-		// Get some useful information from the query.
-		// XXX - What should we do if we get the wrong query version?
-		Record queryRecord = query.getQuestion();
-		OPTRecord queryOPT = query.getOPT();
-		Name name = queryRecord.getName();
-		short type = (short)queryRecord.getType();
-		short dclass = (short)queryRecord.getDClass();
-		
-		logger.info("request id=" + query.getHeader().getID() + " src=" + src + " name=" + name + " type=" + type);
-		
-		if (dclass != DClass.IN) {
-			return ErrorMessages.makeErrorMessage(zone.getSOA(), query, (short)Rcode.NOTIMPL);
-		}
-
-		// XXX - Is this the right thing to do with TSIGs?
-		if (query.getTSIG() != null)
-			return ErrorMessages.makeErrorMessage(zone.getSOA(), query, (short)Rcode.NOTIMPL);
-
-		// Start building our response packet.
-		Message response = new Message();
-		response.getHeader().setID(query.getHeader().getID());
-		response.getHeader().setFlag(Flags.QR);
-		response.getHeader().setFlag(Flags.AA);
-		response.addRecord(queryRecord, Section.QUESTION);
-
-		// Reject zone transfer requests--our zone is dynamic.
-		if (type == Type.AXFR && s != null)
-			return ErrorMessages.makeErrorMessage(zone.getSOA(), response, (short)Rcode.REFUSED);
-
-		// Return an error if we get asked for unsupported record types.
-		if (!Type.isRR(type) && type != Type.ANY)
-			return ErrorMessages.makeErrorMessage(zone.getSOA(), response, (short)Rcode.NOTIMPL);
-		if (type == Type.SIG)
-			return ErrorMessages.makeErrorMessage(zone.getSOA(), response, (short)Rcode.NOTIMPL);
-
-		logger.trace("Querying zone name=" + name + " type=" + type);
-		response.getHeader().setFlag(Flags.AA);
-
-		SetResponse staticResponse = zone.findRecords(name, type);
-		if (staticResponse.isSuccessful()) {
-			logger.trace("Zone query successful");
-		    RRset [] rrsets = staticResponse.answers();
-		    for (int j = 0; j < rrsets.length; j++) {
-			    addRRset(response, rrsets[j], Section.ANSWER);
-		    }
-		    return response;
-		}
-		if (staticResponse.isNXRRSET()) {
-			return ErrorMessages.makeErrorMessage(zone.getSOA(), response, (short)Rcode.NOERROR);
-		}
-
-//		logger.trace("Zone query failed isNXDOMAIN="+staticResponse.isNXDOMAIN() + " isNXRRSET=" + staticResponse.isNXRRSET());
-
-		//System.out.println("name = " + name);
-		
-		String fullname = name.toString();
-		
-		if (fullname.charAt(fullname.length() - 1) != '.') {
-			return ErrorMessages.makeErrorMessage(zone.getSOA(), response, (short)Rcode.FORMERR);
-		}
-		
-		fullname = fullname.substring(0, fullname.length() - 1);
-		int i = fullname.indexOf('.');
-		if (i < 0) {
-			return ErrorMessages.makeErrorMessage(zone.getSOA(), response, (short)Rcode.NXDOMAIN);
-		}
-		
-		String hostname = fullname.substring(0, i);
-		String domainname = fullname.substring(i+1);
-		
-		if (!domainname.equals(domain)) {
-			return ErrorMessages.makeErrorMessage(zone.getSOA(), response, (short)Rcode.NXDOMAIN);
-		}
-
-		//System.out.println("hostname = " + hostname);
-		
-		byte[] addr = getAddr(hostname);
-		
-		if (addr == null) {
-			return ErrorMessages.makeErrorMessage(zone.getSOA(), response, (short)Rcode.NXDOMAIN);
-		}
-		InetAddress iaddr;
 		try {
-			iaddr = InetAddress.getByAddress(fullname, addr);
-		} catch (UnknownHostException e) {
-			return ErrorMessages.makeErrorMessage(zone.getSOA(), response, (short)Rcode.NXDOMAIN);
-		}
+			// Refuse everything but standard DNS queries.
+			if (query.getHeader().getOpcode() != Opcode.QUERY) {
+				return ErrorMessages.makeErrorMessage(zone.getSOA(), query,
+						(short) Rcode.NOTIMPL);
+			}
 
-		if (type != Type.A) {
-			// DNS servers return NOERROR for entries that exist but have different type of records
-			return ErrorMessages.makeErrorMessage(zone.getSOA(), response, (short)Rcode.NOERROR);
-		}
-		
-		ARecord record = new ARecord(name, DClass.IN, 24 * 3600, iaddr);
-		
-		response.addRecord(record, Section.ANSWER);
-		RRset nss = zone.getNS();
-	    addRRset(response, nss, Section.AUTHORITY);
-    	Iterator it = nss.rrs();
-    	while(it.hasNext()) {
-    		NSRecord r = (NSRecord)it.next();
-        	RRset a = zone.findExactMatch(r.getTarget(), Type.A);
-    		addRRset(response, a, Section.ADDITIONAL);
-    	}
+			// Get some useful information from the query.
+			// XXX - What should we do if we get the wrong query version?
+			Record queryRecord = query.getQuestion();
+			OPTRecord queryOPT = query.getOPT();
+			Name name = queryRecord.getName();
+			short type = (short) queryRecord.getType();
+			short dclass = (short) queryRecord.getDClass();
 
-		return response;
+			logger.info("request id=" + query.getHeader().getID() + " src="
+					+ src + " name=" + name + " type=" + type);
+
+			if (dclass != DClass.IN) {
+				return ErrorMessages.makeErrorMessage(zone.getSOA(), query,
+						(short) Rcode.NOTIMPL);
+			}
+
+			// XXX - Is this the right thing to do with TSIGs?
+			if (query.getTSIG() != null)
+				return ErrorMessages.makeErrorMessage(zone.getSOA(), query,
+						(short) Rcode.NOTIMPL);
+
+			// Start building our response packet.
+			Message response = new Message();
+			response.getHeader().setID(query.getHeader().getID());
+			response.getHeader().setFlag(Flags.QR);
+			response.getHeader().setFlag(Flags.AA);
+			response.addRecord(queryRecord, Section.QUESTION);
+
+			// Reject zone transfer requests--our zone is dynamic.
+			if (type == Type.AXFR && s != null)
+				return ErrorMessages.makeErrorMessage(zone.getSOA(), response,
+						(short) Rcode.REFUSED);
+
+			// Return an error if we get asked for unsupported record types.
+			if (!Type.isRR(type) && type != Type.ANY)
+				return ErrorMessages.makeErrorMessage(zone.getSOA(), response,
+						(short) Rcode.NOTIMPL);
+			if (type == Type.SIG)
+				return ErrorMessages.makeErrorMessage(zone.getSOA(), response,
+						(short) Rcode.NOTIMPL);
+
+			logger.trace("Querying zone name=" + name + " type=" + type);
+			response.getHeader().setFlag(Flags.AA);
+
+			SetResponse staticResponse = zone.findRecords(name, type);
+			if (staticResponse.isSuccessful()) {
+				logger.trace("Zone query successful");
+				RRset[] rrsets = staticResponse.answers();
+				for (int j = 0; j < rrsets.length; j++) {
+					addRRset(response, rrsets[j], Section.ANSWER);
+				}
+				return response;
+			}
+			if (staticResponse.isNXRRSET()) {
+				return ErrorMessages.makeErrorMessage(zone.getSOA(), response,
+						(short) Rcode.NOERROR);
+			}
+
+			// logger.trace("Zone query failed isNXDOMAIN="+staticResponse.isNXDOMAIN()
+			// + " isNXRRSET=" + staticResponse.isNXRRSET());
+
+			// System.out.println("name = " + name);
+
+			String fullname = name.toString();
+
+			if (fullname.charAt(fullname.length() - 1) != '.') {
+				return ErrorMessages.makeErrorMessage(zone.getSOA(), response,
+						(short) Rcode.FORMERR);
+			}
+
+			fullname = fullname.substring(0, fullname.length() - 1);
+			int i = fullname.indexOf('.');
+			if (i < 0) {
+				return ErrorMessages.makeErrorMessage(zone.getSOA(), response,
+						(short) Rcode.NXDOMAIN);
+			}
+
+			String hostname = fullname.substring(0, i);
+			String domainname = fullname.substring(i + 1);
+
+			if (!domainname.equals(domain)) {
+				return ErrorMessages.makeErrorMessage(zone.getSOA(), response,
+						(short) Rcode.NXDOMAIN);
+			}
+
+			// System.out.println("hostname = " + hostname);
+
+			byte[] addr = getAddr(hostname);
+
+			if (addr == null) {
+				return ErrorMessages.makeErrorMessage(zone.getSOA(), response,
+						(short) Rcode.NXDOMAIN);
+			}
+			InetAddress iaddr;
+			try {
+				iaddr = InetAddress.getByAddress(fullname, addr);
+			} catch (UnknownHostException e) {
+				return ErrorMessages.makeErrorMessage(zone.getSOA(), response,
+						(short) Rcode.NXDOMAIN);
+			}
+
+			if (type != Type.A) {
+				// DNS servers return NOERROR for entries that exist but have
+				// different type of records
+				return ErrorMessages.makeErrorMessage(zone.getSOA(), response,
+						(short) Rcode.NOERROR);
+			}
+
+			ARecord record = new ARecord(name, DClass.IN, 24 * 3600, iaddr);
+
+			response.addRecord(record, Section.ANSWER);
+			RRset nss = zone.getNS();
+			addRRset(response, nss, Section.AUTHORITY);
+			Iterator it = nss.rrs();
+			while (it.hasNext()) {
+				NSRecord r = (NSRecord) it.next();
+				RRset a = zone.findExactMatch(r.getTarget(), Type.A);
+				addRRset(response, a, Section.ADDITIONAL);
+			}
+
+			return response;
+		} catch (Exception e) {
+			logger.info("An error happened during making response", e);
+			logger.debug(dump(in));
+			return ErrorMessages.makeErrorMessage(zone.getSOA(), query,
+					(short) Rcode.NOTIMPL);
+		}
 	}
 
 	public static void main(String [] args) {
