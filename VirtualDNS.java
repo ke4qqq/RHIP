@@ -14,6 +14,63 @@ public class VirtualDNS {
 
 	static Logger logger = Logger.getLogger(VirtualDNS.class.getName());
 
+	class Dump {
+		int lines;
+		int charsPerLine;
+		byte[][] buf;
+
+		
+		public Dump(byte[] in, int charsPerLine) {
+			this.lines = in.length / charsPerLine + (in.length%charsPerLine == 0 ? 0 : 1);
+			this.charsPerLine = charsPerLine;
+			this.buf = new byte[lines][charsPerLine];
+			int count = 0;
+			for (int i=0; i<lines; i++) {
+				for (int j=0; j<charsPerLine; j++) {
+					if (count < in.length) {
+						buf[i][j] = in[count++];
+					} else {
+						buf[i][j] = ' ';
+					}
+				}
+			}
+				
+		}
+		
+		char getReadableChar(byte val) {
+			if (val >32 && val < 127) {
+				return (char)val;
+			} else {
+				return '.';
+			}
+		}
+		
+		@Override
+		public String toString() {
+			StringBuffer buffer = new StringBuffer();
+			for (int i=0; i<lines; i++) {
+				for (int j=0; j<buf[i].length; j++) {
+					short val = buf[i][j];
+					buffer.append(String.format("0x%1$-4X", val));
+					buffer.append(" ");
+				}
+				
+				buffer.append(" ");
+				buffer.append(" ");
+				buffer.append(" ");
+				
+				for (int j=0; j<buf[i].length; j++) {
+					byte val = buf[i][j];
+					buffer.append(getReadableChar(val));
+					buffer.append(" ");
+				}
+				
+				buffer.append("\n");
+			}
+			
+			return buffer.toString();
+		}
+	}
 	
 	String domain;
 	Zone zone;
@@ -179,19 +236,7 @@ public class VirtualDNS {
     		response.addRecord(r, section);
     	}
     }
-    
-    String dump(byte[] in) {
-		StringBuffer str = new StringBuffer();
-		str.append("\n");
-		for (int i=0; i<in.length; i++) {
-			str.append("0x"+Integer.toHexString(in[i]));
-			str.append(",");
-			if (i!=0 && i%10 == 0) {
-				str.append("\n");
-			}
-		}
-		return str.toString();
-    }
+     
 	// Construct a proper reply packet.
 	private Message generateReply(Message query, byte [] in, Socket s, InetAddress src) {
 		try {
@@ -321,27 +366,35 @@ public class VirtualDNS {
 				addRRset(response, a, Section.ADDITIONAL);
 			}
 
+			/*
+			Dump dump = new Dump(in, 10);
+			logger.debug("Below is dump in " + in.length + " bytes");
+			logger.debug("\n" + dump.toString());
+			*/
+			
 			return response;
 		} catch (Exception e) {
 			logger.info("An error happened during making response", e);
-			logger.debug(dump(in));
+			Dump dump = new Dump(in, 10);
+			logger.debug("Below is dump in " + in.length + " bytes");
+			logger.debug("\n" + dump.toString());
 			return ErrorMessages.makeErrorMessage(zone.getSOA(), query,
 					(short) Rcode.NOTIMPL);
 		}
 	}
 
-	public static void main(String [] args) {
-                if (args.length != 4) {
-                        System.err.println("Usage: VirtualDNS <domain name> <zonefile> <port> <log4j config>");
-                        System.exit(1);
-                }
-                try {
-                		PropertyConfigurator.configure(args[3]);
-                        short port = (short)Integer.parseInt(args[2]);
-                        VirtualDNS s = new VirtualDNS(args[0], args[1], port);
-                }
-                catch (Exception e) {
-                        e.printStackTrace();
-                }
+	public static void main(String[] args) {
+		if (args.length != 4) {
+			System.err
+					.println("Usage: VirtualDNS <domain name> <zonefile> <port> <log4j config>");
+			System.exit(1);
+		}
+		try {
+			PropertyConfigurator.configure(args[3]);
+			short port = (short) Integer.parseInt(args[2]);
+			VirtualDNS s = new VirtualDNS(args[0], args[1], port);
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
 	}
 }
